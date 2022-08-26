@@ -1,0 +1,58 @@
+version: "3.8"
+
+services:
+  # config for reverse proxy
+  reverse-proxy:
+    image: traefik:latest
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entryPoints.http.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      # - /etc/certs:/etc/certs
+
+  # config for single user servers
+  jupyter_server:
+    image: hannsen/cell-tissue-networks_server:latest
+    ports:
+      - '8050:8050'
+    networks:
+      - default
+    command: echo
+
+  # config for Hub
+  jupyterhub:
+    depends_on:
+      - "reverse-proxy"
+    build: 
+      dockerfile: ./Dockerfile
+    image: ctn_hub:latest
+    container_name: ctn_hub
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock                # Give access to Docker socket.
+      - jupyterhub_data:/data:rw                                # Add a data partition for data storage.
+    environment:                                                 # Env variables passed to the Hub process.
+      - DOCKER_JUPYTER_CONTAINER=hannsen/cell-tissue-networks_server:latest
+      - DOCKER_NETWORK_NAME=ctn_default
+      - HUB_IP=ctn_hub
+      - HOST
+    networks:
+      - default
+    labels:                                                       # Traefik configuration.
+      - "traefik.enable=true"                                     # enable Traefik for this service
+      - "traefik.frontend.rule=Host:${HOST}"                      # apply rule for frontend
+      - "traefik.docker.network=ctn_default"  # use internal docker network
+      - "traefik.http.routers.jupyterhub.rule=Host(`${HOST}`)"    # apply routing through traefik
+  
+volumes:
+  jupyterhub_data:
+    name: 'ctn_data'
+
+networks:
+  default:
+    name: ctn_default
